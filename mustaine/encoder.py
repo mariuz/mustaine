@@ -188,3 +188,32 @@ def encode_call(call):
 
     return encoded
 
+@encoder_for(Reply)
+@returns('reply')
+def encode_reply(reply):
+    headers   = ''
+    arguments = ''
+
+    for header,value in reply.headers.items():
+        if not isinstance(header, StringType):
+            raise TypeError("Reply header keys must be strings")
+
+        headers += pack('>cH', 'H', len(header)) + header
+        headers += encode_object(value)
+
+    # TODO: this is mostly duplicated at the top of the file in encode_object. dedup
+    reply_value = reply.value
+    if type(reply_value) in ENCODERS:
+        encoder = ENCODERS[type(reply_value)]
+    else:
+        raise TypeError("mustaine.encoder cannot serialize {0}".format(type(reply_value)))
+
+    data_type, encoded_reply_value = encoder(reply_value)
+
+    encoded  = pack('>cBB', 'r', 1, 0)
+    encoded += headers
+    encoded += encoded_reply_value
+    encoded += 'z'
+
+    return encoded
+
