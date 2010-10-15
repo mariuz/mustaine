@@ -217,3 +217,9 @@ def encode_reply(reply):
 
     return encoded
 
+@encoder_for(Fault)
+@returns('fault')
+def encode_fault(fault):
+    encoded = ''.join(encode_keyval((key, getattr(fault, key))) for key in ['code', 'message', 'detail'])
+    return pack('>c', 'f') + encoded + 'z'
+
