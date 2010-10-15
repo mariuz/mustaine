@@ -2,13 +2,21 @@
 # -*- coding: utf-8 -*-
 
 from mustaine import parser, encoder, protocol
-from wsgiref import simple_server
+
+
+STATUS = '200 OK'
+HEADERS = [('Content-Type', 'application/x-hessian; charset=utf-8'), ]
 
 
 def exposed(func):
     """Mark a function as exposed i.e. visible via Hessian."""
     func._hessian_exposed = True
     return func
+
+
+def encode_reply(reply):
+    """Encode a Python object as a Hessain reply."""
+    return encoder.encode_reply(protocol.Reply(reply))[1]
 
 
 class WsgiApp(object):
@@ -24,33 +32,30 @@ class WsgiApp(object):
         self.functions = {}
         for i in dir(obj):
             func = getattr(obj, i)
-            if not callable(func) or not hasattr(func, '_hessian_exposed') or not func._hessian_exposed:
-                continue
-            self.functions[i] = func
+            if callable(func) and hasattr(func, '_hessian_exposed') and func._hessian_exposed:
+                self.functions[i] = func
 
     def __call__(self, environ, start_response):
         """Standard wsgi function."""
-        post_data = environ['wsgi.input'].read(int(environ.get('CONTENT_LENGTH', '0')))
-        response = self.hessian_call(post_data)
-        status = '200 OK'
-        headers = [('Content-Type', 'application/x-hessian; charset=utf-8'), ]
-        start_response(status, headers)
+        try:
+            post_data = environ['wsgi.input'].read(int(environ.get('CONTENT_LENGTH', '0')))
+            response = self.hessian_call(post_data)
+        except Exception, e:
+            fault = protocol.Fault('ServiceException', e.message, '')
+            response = encode_reply(fault)
+        start_response(STATUS, HEADERS)
         return [response]
 
     def hessian_call(self, post_data):
-        """Receive Hessian POST data and calls the appropriate function."""
-        call = parser.Parser().parse_string(post_data)
-        func = self.functions[call.method]
-        result = func(*call.args)
-        return encoder.encode_reply(protocol.Reply(result))[1]
-
-
-class Calculator(object):
-
-    @exposed
-    def add(self, a, b):
-        return a + b
-
-if __name__ == '__main__':
-    s = simple_server.make_server('', 8080, WsgiApp(Calculator()))
-    s.serve_forever()
+        """Receive Hessian POST data and call the appropriate function."""
+        try:
+            call = parser.Parser().parse_string(post_data)
+            func = self.functions[call.method]
+            result = func(*call.args)
+        except parser.ParseError, e:
+            result = protocol.Fault('ProtocolException', e.message, '')
+        except KeyError:
+            result = protocol.Fault('NoSuchMethodException', 'The requested method "{0}" does not exist.'.format(call.method), '')
+        except Exception, e:
+            result = protocol.Fault('ServiceException', e.message, '')
+        return encode_reply(result)
