@@ -41,7 +41,7 @@ class WsgiApp(object):
             post_data = environ['wsgi.input'].read(int(environ.get('CONTENT_LENGTH', '0')))
             response = self.hessian_call(post_data)
         except Exception, e:
-            fault = protocol.Fault('ServiceException', e.message, '')
+            fault = protocol.Fault('ServiceException', str(e), '')
             response = encode_reply(fault)
         start_response(STATUS, HEADERS)
         return [response]
@@ -53,9 +53,9 @@ class WsgiApp(object):
             func = self.functions[call.method]
             result = func(*call.args)
         except parser.ParseError, e:
-            result = protocol.Fault('ProtocolException', e.message, '')
+            result = protocol.Fault('ProtocolException', str(e), '')
         except KeyError:
             result = protocol.Fault('NoSuchMethodException', 'The requested method "{0}" does not exist.'.format(call.method), '')
         except Exception, e:
-            result = protocol.Fault('ServiceException', e.message, '')
+            result = protocol.Fault('ServiceException', str(e), '')
         return encode_reply(result)
