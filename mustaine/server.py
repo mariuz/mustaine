@@ -19,15 +19,16 @@ def encode_reply(reply):
     return encoder.encode_reply(protocol.Reply(reply))[1]
 
 
-class WsgiApp(object):
-    """The Hessian server wsgi application."""
-
+class HessianWrapper(object):
+    """Wraps an object to enable it to accept Hessian calls."""
     def __init__(self, obj):
-        """ Create a wsgi application which passes Hessian
-        calls to a server object.
+        """Create a HessianWrapper for the provided object.
+
+        Note that only methods decorated with @exposed will
+        be exposed by this wrapper.
 
         obj:
-            The object to be exposed via Hessian
+            The object to be exposed via Hessian.
         """
         self.functions = {}
         for i in dir(obj):
@@ -35,21 +36,14 @@ class WsgiApp(object):
             if callable(func) and hasattr(func, '_hessian_exposed') and func._hessian_exposed:
                 self.functions[i] = func
 
-    def __call__(self, environ, start_response):
-        """Standard wsgi function."""
-        try:
-            post_data = environ['wsgi.input'].read(int(environ.get('CONTENT_LENGTH', '0')))
-            response = self.hessian_call(post_data)
-        except Exception, e:
-            fault = protocol.Fault('ServiceException', str(e), '')
-            response = encode_reply(fault)
-        start_response(STATUS, HEADERS)
-        return [response]
+    def call(self, hessian_data):
+        """Receive Hessian call data, call the appropriate function and return result.
 
-    def hessian_call(self, post_data):
-        """Receive Hessian POST data and call the appropriate function."""
+        hessian_data:
+            Hessian binary call data.
+        """
         try:
-            call = parser.Parser().parse_string(post_data)
+            call = parser.Parser().parse_string(hessian_data)
             func = self.functions[call.method]
             result = func(*call.args)
         except parser.ParseError, e:
@@ -59,3 +53,27 @@ class WsgiApp(object):
         except Exception, e:
             result = protocol.Fault('ServiceException', str(e), '')
         return encode_reply(result)
+
+
+class WsgiApp(object):
+    """The Hessian server wsgi application."""
+
+    def __init__(self, obj):
+        """Create a wsgi application which passes Hessian
+        calls to a server object.
+
+        obj:
+            The object to be exposed via Hessian
+        """
+        self.wrapper = HessianWrapper(obj)
+
+    def __call__(self, environ, start_response):
+        """Standard wsgi function."""
+        try:
+            post_data = environ['wsgi.input'].read(int(environ.get('CONTENT_LENGTH', '0')))
+            response = self.wrapper.call(post_data)
+        except Exception, e:
+            fault = protocol.Fault('ServiceException', str(e), '')
+            response = encode_reply(fault)
+        start_response(STATUS, HEADERS)
+        return [response]
